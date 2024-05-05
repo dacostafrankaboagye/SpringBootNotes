@@ -429,3 +429,202 @@ Note
             - e.g. : Read, Write, Delete, Execute .... like basically to do something
         - Roles : It is sort of a badge
             - e.g. : Admin, Support, Sales, Client, Visitor ...
+
+
+- End of lesson 2 code
+
+```java
+
+@RestController
+public class DemoController {
+
+
+    @GetMapping("/demo")
+    public String demo(){
+
+        var theAuthentication = SecurityContextHolder.getContext().getAuthentication();
+        theAuthentication.getAuthorities().forEach(System.out::println);
+
+
+        return "this is a demo app";
+    }
+}
+
+
+```
+
+```java
+
+@Entity
+@Getter
+@Setter
+@Table(name = "authorities")
+public class MyAuthority {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private  int id;
+
+    private  String name;
+
+    // relationship
+    @ManyToMany(mappedBy = "myAuthorities")
+    private Set<MyUser> myUsers;
+}
+
+
+```
+
+```java
+
+@Entity
+@Table(name = "users")  // matching the one in the database
+@Getter
+@Setter
+public class MyUser {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int id;
+
+    private String username;
+    private String password;
+
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(
+            name = "users_authorities",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "authority_id")
+    )
+    private Set<MyAuthority> myAuthorities;
+}
+
+
+```
+
+```java
+
+public interface MyUserRepository extends JpaRepository<MyUser, Integer> {
+
+    // although there will be a name mapping, lets just add the query to it
+    @Query("""
+    SELECT u from MyUser u WHERE u.username = :username
+    """)
+    Optional<MyUser> findUserByUsername(String username);
+}
+
+
+```
+
+```java
+
+@AllArgsConstructor
+public class MyGrantedAuthority implements GrantedAuthority {
+
+    private final MyAuthority myAuthority;
+
+
+    @Override
+    public String getAuthority() {
+        return myAuthority.getName();
+    }
+}
+
+
+```
+
+```java
+
+@AllArgsConstructor
+public class MyUserDetails implements UserDetails {
+
+    private final MyUser myUser;
+
+    @Override
+    public String getPassword() {
+        return myUser.getPassword();
+    }
+
+    @Override
+    public String getUsername() {
+        return myUser.getUsername();
+    }
+
+
+
+    // we will skip this for now
+    /*
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of(()->"read");
+    }
+    */
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return myUser
+                .getMyAuthorities()
+                .stream()
+                .map(MyGrantedAuthority::new)
+                .collect(Collectors.toList());
+    }
+
+    // we will just return true for all the other boolean for now...
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+
+
+```
+
+
+```java
+
+@AllArgsConstructor
+@Service
+public class MyUserDetailsService implements UserDetailsService {
+
+    private final MyUserRepository myUserRepository;
+
+
+    @Override
+    public UserDetails loadUserByUsername(String username) {
+        var myUser = myUserRepository.findUserByUsername(username);
+
+        return myUser
+                .map(MyUserDetails::new)
+                .orElseThrow(() -> new UsernameNotFoundException("Username not found: " + username));
+
+    }
+}
+
+
+```
+
+```bash
+
+spring.application.name=managingUsers
+
+# mysql
+spring.datasource.url=jdbc:mysql://localhost/ss_lesson2
+spring.datasource.username=root
+spring.datasource.password=***
+
+```
