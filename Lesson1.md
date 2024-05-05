@@ -169,8 +169,263 @@ public class MyWebSecurityConfig{
 
     - Because it is a web app it starts with a "Filter"
 
-    - Filter with Imolements the 
+    - Filter which implements the 
       - Http Basic Authenticaton -> delegate to another object
         - Authentication Manager -> delegates to another object
             - Authentication Provider -> uses the "UserDetailsService" & "PasswordEncoder"
 
+
+# Lesson 2 
+
+    Managing Users
+
+    Authentication Filter -> Authentication manager (only 1) -> finds an approproate Authentication Provider (can be multiple) -> when it needs credentials - it will search and use a UserDetailsService and Password Encoder for validations -> ....
+
+        - You can implement more Authentication providers (AP)
+        - Whenever the AP needs username and password -> they must use two components 
+            - UserDetailsService
+            - Password Encoder
+
+    -> the last step of that chain is to store the Authentication details in the security context
+
+
+- When using the UserDetailsService
+    - spring needs the loadByUsername 
+
+```java
+public interface UserDetailsService {
+    UserDetails loadUserByUsername(String username) throws UsernameNotFoundException;
+}
+
+/*
+
+-> parameter : username : unique
+-> return type: UserDetails
+
+*/
+
+
+
+/*
+
+you can use @Service on the MyUserDetailsService so that, that instance is in the context
+
+*/
+
+@Service
+public class MyUserDetailsService implements UserDetailsService {
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        return null;
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+/*
+or you do that in the security config, make it a bean -> with a new instance like this
+*/
+
+// MyUserDetailsService.java
+
+public class MyUserDetailsService implements UserDetailsService {
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        return null;
+    }
+}
+
+// securit config will look like this
+
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    public UserDetailsService theUserDetailsService() {
+        return new MyUserDetailsService();
+    }
+
+    @Bean
+    public PasswordEncoder thePasswordEncoder() {
+        return NoOpPasswordEncoder.getInstance();
+    }
+
+}
+
+
+//-----------------------------------------------------------------------------
+
+
+
+```
+
+---
+
+- Do not use the a stereotype annotation on the interface :
+    - the purpose of the stereotype annotation is to create an instance of the class in spring's context
+
+---
+
+- Instead of implementing the user details as part of the entity,  
+    - lets do things differently 
+        - because: we want to follow the Single Responsibility Principle:
+        - if we do something like this
+
+```java
+@Entity
+@Table
+public User implements UserDetails{}
+
+/*
+
+- we are not following the Single Reponsibility Principle
+- our class will have two resons to change (first - its an entity, second - its implementing UserDetails)
+*/
+```
+
+- Well a different choice will be to use a mapper
+- but lets use adapting / decorating -> but more of adpater pattern
+
+
+code review
+
+```java
+
+@AllArgsConstructor
+@Service
+public class MyUserDetailsService implements UserDetailsService {
+
+    private final MyUserRepository myUserRepository;
+
+
+    @Override
+    public UserDetails loadUserByUsername(String username) {
+        var myUser = myUserRepository.findUserByUsername(username);
+
+        return myUser
+                .map(MyUserDetails::new)
+                .orElseThrow(() -> new UsernameNotFoundException("Username not found: " + username));
+
+    }
+}
+
+
+```
+
+
+```java
+
+@AllArgsConstructor
+public class MyUserDetails implements UserDetails {
+
+    private final MyUser myUser;
+
+    @Override
+    public String getPassword() {
+        return myUser.getPassword();
+    }
+
+    @Override
+    public String getUsername() {
+        return myUser.getUsername();
+    }
+
+    // we will skip this for now
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of(()->"read");
+    }
+
+    // we will just return true for all the other boolean for now...
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+
+
+```
+
+```java
+
+public interface MyUserRepository extends JpaRepository<MyUser, Integer> {
+
+    // although there will be a name mapping, lets just add the query to it
+    @Query("""
+    SELECT u from MyUser u WHERE u.username = :username
+    """)
+    Optional<MyUser> findUserByUsername(String username);
+}
+
+
+```
+
+```java
+
+@Entity
+@Table(name = "users")  // matching the one in the database
+@Getter
+@Setter
+public class MyUser {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int id;
+
+    private String username;
+    private String password;
+}
+
+
+```
+
+```java
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    public PasswordEncoder thePasswordEncoder() {
+        return NoOpPasswordEncoder.getInstance();
+    }
+
+}
+
+
+```
+
+
+---
+
+Note
+
+    - User
+        - it has GrantedAuthorities
+            - this can be 
+                - AUTHORITIES  or
+                - ROLES
+
+    - there is nothing that is differentiating the Authorities and the roles -> it is conceptual
+    - it is from one contract - GrantedAuthorities
+
+    - From a conceptual point
+        - Authorities : It is an action, that the user can do in your application
+            - e.g. : Read, Write, Delete, Execute .... like basically to do something
+        - Roles : It is sort of a badge
+            - e.g. : Admin, Support, Sales, Client, Visitor ...
