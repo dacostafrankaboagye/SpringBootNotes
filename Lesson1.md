@@ -1,5 +1,5 @@
 
-# Lesson 1
+## Lesson 1
 
 - Application Level security
     - Authentication
@@ -175,7 +175,7 @@ public class MyWebSecurityConfig{
             - Authentication Provider -> uses the "UserDetailsService" & "PasswordEncoder"
 
 
-# Lesson 2 
+## Lesson 2 
 
     Managing Users
 
@@ -628,3 +628,48 @@ spring.datasource.username=root
 spring.datasource.password=***
 
 ```
+
+
+## Lesson 3 - Custom Authentication
+
+- Purely different authentication mechanism 
+
+ - Flow
+    - `http` -> goes to
+        - Custom Authentication Filter ->
+            - -> Custom Authentication Manager ->
+                - -> Authentication Provider -> [UsernameAndPassword, PasswordEncoder]
+---
+
+-> What we want to do
+ - The idea
+     - We have a static key -> we want the `http` to use that static key to get authenticated
+     - if the request has that key -> only then does it get authenticated
+
+ - our custom Authentication for this lesson will only rely on `key`
+    
+```java
+
+// previously, we extens the WebSecurityConfigurerAdapter
+// so we define a bean of type SecurttyFilterChain
+
+
+
+```
+
+```java
+
+// custom auth filter
+    /*
+     - when implementing the Filter from the javac.servlet.Filter
+     - is it guaranteed that the filter will be called once?
+     - if not do not implement the `Filter`
+        - implement the `OncePerRequesrFiler`
+    */
+
+
+```
+
+## Lesson 4 - Multiple Authentication providers
+
+
