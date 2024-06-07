@@ -636,9 +636,9 @@ spring.datasource.password=***
 
  - Flow
     - `http` -> goes to
-        - `Custom Authentication Filter` ->
-            - -> `Custom Authentication Manager` ->
-                - -> `Authentication Provider` -> [UsernameAndPassword, PasswordEncoder]
+        - Custom Authentication Filter ->
+            - -> Custom Authentication Manager ->
+                - -> Authentication Provider -> [UsernameAndPassword, PasswordEncoder]
 ---
 
 -> What we want to do
@@ -671,5 +671,371 @@ spring.datasource.password=***
 ```
 
 ## Lesson 4 - Multiple Authentication providers
+
+ - Say, you have multiple filters, each of them can have it own authentication that -> it passes to the authentication Manager -> then -> Authentication provider
+
+ - easily be done with multiple custom filters or multiple default filters
+ - difficult part is -> when you have a say, 1 custom filter, the rest are default filters : not very common
+
+ - we will try and implement 1 custom filter, and I default filter
+
+ // right from the HTTP request
+    -> the custom filters will go to their own authentication manager -> own authentication  providers
+    -> the default filters will do likewise
+
+- What we will be doing
+    - the application will allow for both HTTPbasic and API key
+
+- lets dive in
+    - we keep the application simple [no db, concentration is on configuaration]
+
+
+// in the past, what we could have done is: 
+
+ - created a `SecurityConfig` class and extended `WebSecurityConfigurerAdapter`
+
+ // we donot do this anymore
+
+// we use the `SecurityFilterChain`
+
+
+```java
+
+@Configuration
+public class SecurityConfig {
+
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) {
+        
+    }
+    
+}
+
+```
+
+ - When the `httpBasic` is called it creates a configurer
+  - when the application starts it creates the filter, authentication manager, then the authentication providers
+
+Note
+
+```java
+
+// when creating your own authentication manager or authenticaion provider
+
+http.httpBasic()
+    // .and().authenticationManager() or by adding a bea of type AuthenticationManager
+    // .and().authenticationProvider() //>> this does not overide the Authentication Provider, it adds one more to the collection
+
+    .and().build()
+
+```
+
+ - Filter -> Manager -> Provider -> User details service (if needed)
+
+
+ - We create the custom filter - `MyApiKeyFilter` -> extends -> `OncePerRequestFilter`
+ - the authentication - `MyApiKeyAuthentication` -> implements -> `Authentication`
+ - the authentication manager - `MyApiKeyAuthenticationManager` ->  implements -> `AuthenticationManager` 
+
+ - apply `myApiKeyFilter` before `BasicAuthenticatioFilter`
+
+
+
+ // note that
+  - it creates the authenticaton manager builder
+  - then it creates the authentication manager
+  - then it goes into the filters
+
+
+
+
+```java
+
+package com.frankaboagye.springlesson4.config;
+
+
+import com.frankaboagye.springlesson4.config.filters.MyApiKeyFilter;
+import com.frankaboagye.springlesson4.config.managers.MyApiKeyAuthenticationManager;
+import com.frankaboagye.springlesson4.config.providers.MyApiKeyProvider;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
+
+
+@Configuration
+@RequiredArgsConstructor
+public class SecurityConfig {
+
+    private final MyApiKeyFilter myApiKeyFilter;
+    // private final MyApiKeyProvider myApiKeyProvider;
+    // private final MyApiKeyAuthenticationManager myApiKeyAuthenticationManager;
+
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+
+        return httpSecurity
+                .authorizeHttpRequests(
+                        authRequests -> {
+                            authRequests.requestMatchers("/demo/public").permitAll();
+                            authRequests.anyRequest().authenticated();
+                        }
+                )
+                // .authenticationManager(myApiKeyAuthenticationManager)
+                // .authenticationProvider(myApiKeyProvider)
+                .addFilterBefore(myApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
+                .build();
+
+    }
+
+}
+
+/*]
+return http.httpBasic(
+
+                httpSecurityHttpBasicConfigurer -> {
+
+                    try {
+                        httpSecurityHttpBasicConfigurer.configure(
+                                http
+                                        .addFilterBefore(
+                                                new MyApiKeyFilter(mySecretKey), BasicAuthenticationFilter.class
+                                        )
+                                        .authorizeHttpRequests(
+                                                authorizationManagerRequestMatcherRegistry -> authorizationManagerRequestMatcherRegistry.anyRequest().authenticated()
+                                        )
+
+                        );
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+
+                }
+
+        ).build();
+ */
+```
+
+
+```java
+
+package com.frankaboagye.springlesson4.config.providers;
+
+import com.frankaboagye.springlesson4.config.authentications.MyApiKeyAuthentication;
+import lombok.AllArgsConstructor;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.stereotype.Component;
+
+@AllArgsConstructor
+@Component
+public class MyApiKeyProvider implements AuthenticationProvider {
+
+
+    @Override
+    public Authentication authenticate(Authentication authentication) throws AuthenticationException {
+
+        MyApiKeyAuthentication theAuthentication = (MyApiKeyAuthentication) authentication;  // we know the kind of authentication that is coming, so we can type cast it
+        if("LLM".equals(theAuthentication.getKey())){
+            theAuthentication.setAuthenticated(true);
+            return theAuthentication;
+        }else{
+            throw new BadCredentialsException("Bad credentials: From KAF");
+        }
+    }
+
+    @Override
+    public boolean supports(Class<?> authentication) {
+        return MyApiKeyAuthentication.class.equals(authentication);
+    }
+}
+
+
+
+```
+
+
+```java
+
+package com.frankaboagye.springlesson4.config.managers;
+
+import com.frankaboagye.springlesson4.config.providers.MyApiKeyProvider;
+import lombok.AllArgsConstructor;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.stereotype.Component;
+
+@AllArgsConstructor
+@Component
+public class MyApiKeyAuthenticationManager implements AuthenticationManager {
+
+    @Override
+    public Authentication authenticate(Authentication authentication) throws AuthenticationException {
+
+        MyApiKeyProvider myApiKeyProvider = new MyApiKeyProvider();
+
+        if(myApiKeyProvider.supports(authentication.getClass())){
+            return myApiKeyProvider.authenticate(authentication);
+        }
+
+        return authentication;
+
+
+    }
+}
+
+
+````
+
+
+```java
+
+package com.frankaboagye.springlesson4.config.filters;
+
+import com.frankaboagye.springlesson4.config.authentications.MyApiKeyAuthentication;
+import com.frankaboagye.springlesson4.config.managers.MyApiKeyAuthenticationManager;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.AllArgsConstructor;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+
+@Service
+@AllArgsConstructor
+public class MyApiKeyFilter extends OncePerRequestFilter {
+
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+
+        String authHeader = request.getHeader("Authorization");
+
+        var requestKey = request.getHeader("x-api-key"); // that is the standard
+
+        // if the requestKey is not there - proceed to use basic authentication - i.e. username and password
+        // side note : spring boot: defaults :: ----- username: user     ----- password : <the generated password in the console> : try it with postman
+        if(requestKey == null || requestKey.isEmpty() || requestKey.equals("null")){
+            filterChain.doFilter(request, response);
+        }
+
+        MyApiKeyAuthentication theAuthenticationComingIn = new MyApiKeyAuthentication(requestKey, false);
+
+
+        MyApiKeyAuthenticationManager manager = new MyApiKeyAuthenticationManager();
+
+        try {
+
+            var theAuthentication =  manager.authenticate(theAuthenticationComingIn);
+
+            if(theAuthentication.isAuthenticated()){
+                SecurityContextHolder.getContext().setAuthentication(theAuthentication);
+
+            }else{
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            }
+
+        }catch (AuthenticationException e) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        }
+
+        // continue
+        filterChain.doFilter(request, response);
+
+    }
+}
+
+
+```
+
+
+```java
+
+package com.frankaboagye.springlesson4.config.authentications;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+
+import javax.security.auth.Subject;
+import java.util.Collection;
+import java.util.List;
+
+@AllArgsConstructor
+@Getter @Setter
+public class MyApiKeyAuthentication implements Authentication {
+
+
+    private final String key;
+
+    private boolean authenticated;
+
+
+    @Override
+    public boolean isAuthenticated() {
+        return authenticated;
+    }
+
+    @Override
+    public void setAuthenticated(boolean isAuthenticated) throws IllegalArgumentException {
+        this.authenticated = isAuthenticated;
+    }
+
+    // leave the rest
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of();
+    }
+
+    @Override
+    public Object getCredentials() {
+        return null;
+    }
+
+    @Override
+    public Object getDetails() {
+        return null;
+    }
+
+    @Override
+    public Object getPrincipal() {
+        return null;
+    }
+
+    @Override
+    public String getName() {
+        return "";
+    }
+
+    @Override
+    public boolean implies(Subject subject) {
+        return Authentication.super.implies(subject);
+    }
+
+}
+
+
+```
+
+ - in `applications.properties`
+
+```java
+MYSECRETKEY=THESECRET
+``` 
 
 
