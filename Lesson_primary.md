@@ -636,9 +636,9 @@ spring.datasource.password=***
 
  - Flow
     - `http` -> goes to
-        - Custom Authentication Filter ->
-            - -> Custom Authentication Manager ->
-                - -> Authentication Provider -> [UsernameAndPassword, PasswordEncoder]
+        - `Custom Authentication Filter` ->
+            - -> `Custom Authentication Manager` ->
+                - -> `Authentication Provider` -> [UsernameAndPassword, PasswordEncoder]
 ---
 
 -> What we want to do
