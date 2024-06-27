@@ -1039,3 +1039,293 @@ MYSECRETKEY=THESECRET
 ``` 
 
 
+## Lesson 5 - Endpoint Authorization - 1
+
+- Authentication - finding out who you are
+- Authorisation  - granting access to resources
+
+- Authorization is always after authentication
+
+- Authorization
+    - `Endpoint level authorization` : implemented for web apps; applied through the `filter chain` [where the rules are applied]
+    - `Method level authorization` : you can apply it on any method [of any bean] ; done through `aspects`
+
+
+- Note: 
+    - After the filter chain -> is the controller
+
+- How do we implement enpoint level authorization
+    - lets create a project and secure some endpoint
+        - we'll skip some basic things like Date base and stuffs
+
+- On postman - try : // select Basic Auth -> put in the `username` and `password`
+    - a session will also be stored for you `in the cookies` -> try deleting & or changing the authorization type
+
+```java
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+        return httpSecurity
+                .httpBasic(Customizer.withDefaults())
+                .authorizeHttpRequests(authorizationManagerRequestMatcherRegistry -> {
+                    authorizationManagerRequestMatcherRegistry.anyRequest().authenticated(); // endpoint level authorization
+                })
+                .build();
+    }
+
+    @Bean
+    public UserDetailsService userDetailsService() {
+        var uds = new InMemoryUserDetailsManager();
+
+        var user1  = User
+                .withUsername("kyle")
+                .password(passwordEncoder().encode("myPassword"))
+                .roles("citizen")
+                .build();
+
+        uds.createUser(user1);
+
+        return uds;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+
+```
+
+```java
+
+@RestController
+public class DemoController {
+
+    @GetMapping("/demo")
+    public String getDemo(){
+        return "Demo";
+    }
+}
+
+
+```
+
+ - Understand this
+    - `matcher method`  + `authorization rule` 
+
+        - which `matcher method` to use  [`anyRequest`, `mvcMatchers` {use this}, `antMatchers`, `regexMatchers`]
+        - applying different `authorization rules` [`permitAll`, `denyAll`, `hasAuthority`, `hasAnyAuthority`, `hasRole`, `hasAnyRole`]
+            - you can use special language for the authorization rule
+
+
+- Funny behaviour
+
+```java
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+        return httpSecurity
+                .httpBasic(Customizer.withDefaults())
+                .authorizeHttpRequests(authorizationManagerRequestMatcherRegistry -> {
+                    authorizationManagerRequestMatcherRegistry.anyRequest().permitAll();  //  there is a funny behaviour to this
+                })
+                .build();
+    }
+
+'''
+Funny Behaviour
+
+-> when you are not authenticated, it goes through
+-> when you are authenticated it goes through
+-> when the authentication credentials are wrong, it fails.... 
+
+on Postman, you see a response like
+
+{
+    "timestamp": "...",
+    "status": 401,
+    "error": "Unauthorized",
+    "path": "/demo"
+}
+
+'''
+
+
+'''
+->> it happens because of how enpoint authorization works
+
+Http Request -> {has authentication} -> Authentication Fiter -> successgful authentication -> create the security context -> Authorization -> Controller  
+Http Request -> { no authentication} -> SKIPS TO -> Controller  
+
+'''
+
+```
+
+---
+
+```java
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+        return httpSecurity
+                .httpBasic(Customizer.withDefaults())
+                .authorizeHttpRequests(authorizationManagerRequestMatcherRegistry -> {
+                    // authorizationManagerRequestMatcherRegistry.anyRequest().authenticated(); // endpoint level authorization
+                    // authorizationManagerRequestMatcherRegistry.anyRequest().permitAll();
+                    authorizationManagerRequestMatcherRegistry.anyRequest().hasAuthority("dance");
+                    // hasAnyAuthorities("authority1", "authority2", ... )  >> any of the authorities
+                })
+                .build();
+    }
+
+    @Bean
+    public UserDetailsService userDetailsService() {
+        var uds = new InMemoryUserDetailsManager();
+
+        var user1  = User
+                .withUsername("kyle")
+                .password(passwordEncoder().encode("myPassword"))
+                .authorities("play_chess")
+                .build();
+
+        var user2  = User
+                .withUsername("Tim")
+                .password(passwordEncoder().encode("secT"))
+                .authorities("dance")
+                .build();
+
+        uds.createUser(user1);
+        uds.createUser(user2);
+
+        return uds;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+
+
+'''
+>> 403 - Authourization fails
+>> 401 - Authentication fails [ but the error say, unAuthroized]
+
+'''
+
+
+```
+
+---
+
+```java
+
+// hasRole
+
+'''
+
+role("Admin")   == same as == authority named `ROLE_Admin`
+
+stick with either role / authority
+
+'''
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+        return httpSecurity
+                .httpBasic(Customizer.withDefaults())
+                .authorizeHttpRequests(authorizationManagerRequestMatcherRegistry -> {
+                    authorizationManagerRequestMatcherRegistry.anyRequest().hasRole("dance");  // will work for only `Tim` 
+                })
+                .build();
+    }
+
+    @Bean
+    public UserDetailsService userDetailsService() {
+        var uds = new InMemoryUserDetailsManager();
+
+        var user1  = User
+                .withUsername("kyle")
+                .password(passwordEncoder().encode("myPassword"))
+                .authorities("play_chess")
+                .build();
+
+        var user2  = User
+                .withUsername("Tim")
+                .password(passwordEncoder().encode("secT"))
+                .authorities("ROLE_dance")
+                .build();
+
+        uds.createUser(user1);
+        uds.createUser(user2);
+
+        return uds;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+
+
+
+```
+
+---
+
+```java
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+        return httpSecurity
+                .httpBasic(Customizer.withDefaults())
+                .authorizeHttpRequests(authorizationManagerRequestMatcherRegistry -> {
+                    authorizationManagerRequestMatcherRegistry.anyRequest().access(allOf(hasAuthority("play_chess"), hasRole("walk"))); // `kyle` fits here
+                })
+                .build();
+    }
+
+    @Bean
+    public UserDetailsService userDetailsService() {
+        var uds = new InMemoryUserDetailsManager();
+
+        var user1  = User
+                .withUsername("kyle")
+                .password(passwordEncoder().encode("myPassword"))
+                .authorities("play_chess", "ROLE_walk")
+                .build();
+
+        var user2  = User
+                .withUsername("Tim")
+                .password(passwordEncoder().encode("secT"))
+                .authorities("ROLE_dance")
+                .build();
+
+        uds.createUser(user1);
+        uds.createUser(user2);
+
+        return uds;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+
+
+```
+
